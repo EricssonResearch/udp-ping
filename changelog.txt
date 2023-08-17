@@ -1,0 +1,9 @@
+For now, we work with dates, not version numbers
+
+22.05.2023:
+- Minor: Added this file
+- Major: Changed function call for testing of available received packet to not block at all and immediatelly return. This heavily improves the determinism of request send intervals
+- Minor: Main loop provides receive buffer to udpReceive() routine so it does not have to allocate memory
+
+28.04.2023:
+- Initial version 
