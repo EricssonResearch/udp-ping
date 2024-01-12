@@ -216,6 +216,7 @@ int main(int argc, char *argv[])
     std::cout << "Starting to send\n";
     for(SEQNR_TYPE i = 0; i < num_packets; i++)
     {
+        clock_gettime(CLOCK_REALTIME, &start);
         memcpy(msg, &i, sizeof(SEQNR_TYPE)); // Copy the sequence number to the beginning of the message
         udpSend(fd, servaddr, msg, packet_size);
         clock_gettime(CLOCK_REALTIME, &start);
