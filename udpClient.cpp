@@ -184,7 +184,7 @@ int main(int argc, char *argv[])
     }
 
 
-    struct timespec start, now, tim;
+    struct timespec start, now, tim, send;
     tim.tv_sec = 0;
     tim.tv_nsec = interval * 1E6;
     float rate = 1.0;
@@ -216,10 +216,11 @@ int main(int argc, char *argv[])
     std::cout << "Starting to send\n";
     for(SEQNR_TYPE i = 0; i < num_packets; i++)
     {
+        clock_gettime(CLOCK_REALTIME, &start);
         memcpy(msg, &i, sizeof(SEQNR_TYPE)); // Copy the sequence number to the beginning of the message
         udpSend(fd, servaddr, msg, packet_size);
-        clock_gettime(CLOCK_REALTIME, &start);
-        sendMap[i] = start;
+        clock_gettime(CLOCK_REALTIME, &send);
+        sendMap[i] = send;
 
         if(mode == RANDOM_EXP)
             tim.tv_nsec = distribution(generator) * 1E6;
@@ -250,3 +251,4 @@ int main(int argc, char *argv[])
     printResult(sendMap, receiveMap);
     return 0;
 }
+
