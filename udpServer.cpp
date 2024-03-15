@@ -11,6 +11,13 @@
 #define PORT 1234
 #define MAXBUF 1600    // Typically, 1500 Byte is the maximum packet size, but this is of course risky
 
+void printHelp(const char* argv0)
+{
+    std::cout << "How to use udpServer:\n";
+    std::cout << argv0 << "\t";
+    std::cout << "[PORT]\nDefault port number is " << PORT << "\n";
+}
+
 int main(int argc, char *argv[])
 {
     int port, packet_size;
@@ -19,15 +26,17 @@ int main(int argc, char *argv[])
     if(argc > 2)
     {
         std::cout << "\nToo many input parameters\n\n";
-        std::cout << "How to use udpServer:\n";
-        std::cout << argv[0] << "\t";
-        std::cout << "[PORT]\nDefault port number is " << PORT << "\n";
+        printHelp(argv[0]);
         std::cout << "Terminating the program\n\n";
-
         return -1;
     }
     if(argc == 2)
-        std::istringstream ss1(argv[1]);
+        if (strcmp(argv[1],"-h")==0)
+        {
+            printHelp(argv[0]);
+            return 0;
+        }
+        port = atoi(argv[1]);
     if(argc == 1)
         port = PORT;
 
