@@ -31,12 +31,14 @@ int main(int argc, char *argv[])
         return -1;
     }
     if(argc == 2)
+    {    
         if (strcmp(argv[1],"-h")==0)
         {
             printHelp(argv[0]);
             return 0;
         }
         port = atoi(argv[1]);
+    }
     if(argc == 1)
         port = PORT;
 
