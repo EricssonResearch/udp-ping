@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <time.h>
-#include "udp-ping.h"
+#include "udp-ping.hpp"
 
 void printHelp(const char* argv0)
 {

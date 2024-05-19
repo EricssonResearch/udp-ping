@@ -12,7 +12,7 @@
 #include <sstream>
 #include <boost/program_options.hpp>
 #include <map>
-#include "udp-ping.h"
+#include "udp-ping.hpp"
 
 #define FIXED 0
 #define RANDOM_EXP 1
