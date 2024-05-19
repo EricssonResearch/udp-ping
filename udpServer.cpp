@@ -7,9 +7,11 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <time.h>
 
 #define PORT 1234
 #define MAXBUF 1600    // Typically, 1500 Byte is the maximum packet size, but this is of course risky
+#define SEQNR_TYPE long int
 
 void printHelp(const char* argv0)
 {
@@ -67,6 +69,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    struct timespec now;
     socklen_t len;
     int n = 0;
 
@@ -75,6 +78,8 @@ int main(int argc, char *argv[])
         len = sizeof(cliaddr);
 
         n = recvfrom(sockfd, (char*)buffer, MAXBUF, 0, ( struct sockaddr*) &cliaddr, &len);
+        clock_gettime(CLOCK_REALTIME, &now);
+        memcpy(&buffer[sizeof(SEQNR_TYPE)], &now, sizeof(struct timespec));
         sendto(sockfd, (const char*)buffer, n, 0, (const struct sockaddr*) &cliaddr, len);
         count++;
         if(count % 100 == 0)

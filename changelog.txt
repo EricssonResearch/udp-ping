@@ -1,5 +1,8 @@
 For now, we work with dates, not version numbers
 
+19.05.2024:
+- Added time stamping at server to measure one-way-delay and corresponding output at client.  
+
 22.05.2023:
 - Minor: Added this file
 - Major: Changed function call for testing of available received packet to not block at all and immediatelly return. This heavily improves the determinism of request send intervals

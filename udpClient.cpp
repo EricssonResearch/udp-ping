@@ -43,14 +43,14 @@ bool udpSend(int fd, sockaddr_in serveraddr, const char *msg, int size)
     return true;
 }
 
-bool udpReceive(int fd, std::map<SEQNR_TYPE, timespec> &in, char* buffer)
+bool udpReceive(int fd, std::map<SEQNR_TYPE, timespec> &in, std::map<SEQNR_TYPE, timespec> &oneWay, char* buffer)
 {
     fd_set readfds;
     fcntl(fd, F_SETFL, O_NONBLOCK);
 
 
+    struct timespec now, then;
     struct timeval tv;
-    struct timespec now;
     SEQNR_TYPE seqnr;
     socklen_t len;
     struct sockaddr_in servaddr;
@@ -68,7 +68,9 @@ bool udpReceive(int fd, std::map<SEQNR_TYPE, timespec> &in, char* buffer)
         clock_gettime(CLOCK_REALTIME, &now);
         int n = recvfrom(fd, (char*)buffer, MAXBUF, 0, (struct sockaddr *) &servaddr, &len);
         memcpy(&seqnr, buffer, sizeof(SEQNR_TYPE));
+        memcpy(&then, &buffer[sizeof(SEQNR_TYPE)], sizeof(struct timespec));
         in[seqnr] = now;
+        oneWay[seqnr] = then;
 
         return true;
     }
@@ -76,10 +78,12 @@ bool udpReceive(int fd, std::map<SEQNR_TYPE, timespec> &in, char* buffer)
 }
 
 
-void printResult(std::map<SEQNR_TYPE, timespec> out, std::map<SEQNR_TYPE, timespec> in)
+void printResult(std::map<SEQNR_TYPE, timespec> out, std::map<SEQNR_TYPE, timespec> in, std::map<SEQNR_TYPE, timespec> oneWay)
 {
+    bool warn = false;
+
     SEQNR_TYPE lost = 0, cnt = 0;
-    std::cout << "SeqNr \t SendTime \t ReceiveTime \t RTT (all times in ns)\n";
+    std::cout << "SeqNr \t SendTime \t ServerTime \t ReceiveTime \t Client->Server \t Server->Client \t RTT (all times in ns)\n";
 
     for(std::map<SEQNR_TYPE, timespec>::iterator it = out.begin(); it != out.end(); it++)
     {
@@ -88,8 +92,13 @@ void printResult(std::map<SEQNR_TYPE, timespec> out, std::map<SEQNR_TYPE, timesp
         {
             std::cout << std::fixed << std::setprecision(0) << it->first << ";"
                 << it->second.tv_nsec + it->second.tv_sec * 1E9 << ";"
+                << (oneWay[it->first].tv_nsec + oneWay[it->first].tv_sec * 1E9) << ";"
                 << in[it->first].tv_nsec + in[it->first].tv_sec * 1E9 << ";"
+                << (oneWay[it->first].tv_nsec + oneWay[it->first].tv_sec * 1E9) - (it->second.tv_nsec + it->second.tv_sec * 1E9) << ";"
+                << (in[it->first].tv_nsec + in[it->first].tv_sec * 1E9)  - (oneWay[it->first].tv_nsec + oneWay[it->first].tv_sec * 1E9) << ";"
                 << (in[it->first].tv_nsec + in[it->first].tv_sec * 1E9) - (it->second.tv_nsec + it->second.tv_sec * 1E9) << "\n";
+            if((oneWay[it->first].tv_nsec + oneWay[it->first].tv_sec * 1E9) - (it->second.tv_nsec + it->second.tv_sec * 1E9) < 0)
+                warn = true;
         }
         else
         {
@@ -99,6 +108,11 @@ void printResult(std::map<SEQNR_TYPE, timespec> out, std::map<SEQNR_TYPE, timesp
         }
     }
     std::cout << lost << " out of " << cnt << " lost\n";
+
+    if(warn)
+        std::cout << "\nWarning: Negative one-way-delays Client->Server were encountered. This can happen with very fast links,\n" 
+                  << "as the client records time stamp after sending the packet while the server records before sending it.\n"
+                  << "Use -t option to force client time stamping before sending (not recommended)\n"; 
 }
 
 int main(int argc, char *argv[])
@@ -107,8 +121,9 @@ int main(int argc, char *argv[])
     std::string tmp_host_name;
     int port, num_packets, packet_size, interval, mode;
     float ratio;
+    bool timestamp;
     SEQNR_TYPE packetID = 0;
-    std::map<SEQNR_TYPE, timespec> sendMap, receiveMap;
+    std::map<SEQNR_TYPE, timespec> sendMap, receiveMap, oneWayMap;
 
     try
     {
@@ -121,7 +136,9 @@ int main(int argc, char *argv[])
         ("packet-size,s", po::value<int>(&packet_size)->default_value(50), "Size, in Byte, of each UDP packet (default 50 Byte, conains random ASCII characters)")
         ("interval,i", po::value<int>(&interval)->default_value(20), "Interval, in milliseconds, between sending packets (default 20 milliseconds, mean value if randomness is used)")
         ("mode,m", po::value<int>(&mode)->default_value(0), "Distribution of interval between packets: 0: Constant, 1: Exponetially distributed, 2: Constant with ratio r, adding exponentially distributed random component with ratio 1 - r")
-        ("ratio,r", po::value<float>(&ratio)->default_value(0.9), "Ratio of constant component for Mode 2 (default 0.9)");
+        ("ratio,r", po::value<float>(&ratio)->default_value(0.9), "Ratio of constant component for Mode 2 (default 0.9)")
+        ("timestamp,t", po::bool_switch(&timestamp)->default_value(false), "Use time stamp just before sending the packet, not after (not recommended)");
+
 
         po::positional_options_description p;
         po::variables_map vm;
@@ -164,12 +181,14 @@ int main(int argc, char *argv[])
             perror("Mode must be '0', '1', or '2':  0: Constant, 1: Exponetially distributed, 2: Constant with ratio r, adding exponentially distributed random component with ratio 1 - r\n");
             return -1;
         }
-        if(packet_size < sizeof(SEQNR_TYPE))
+        if(packet_size < (sizeof(SEQNR_TYPE) + sizeof(struct timespec)))
         {
-            std::cout << "Minimum packet size is " << sizeof(SEQNR_TYPE) << " to fit sequence number\n";
+            std::cout << "Minimum packet size is " << sizeof(SEQNR_TYPE) + sizeof(struct timespec) << " to fit sequence number and time stamp\n";
             return -1;
         }
 
+        if(timestamp)
+            std::cout << "Sender takes timestamp before sending the packet (not recommeded)\n";
         std::cout << "Destination host IP address: " << host_name << "\n";
         std::cout << "Destination port number: " << port << "\n";
         std::cout << "Number of UDP packets to transmit: " << num_packets << "\n";
@@ -220,7 +239,11 @@ int main(int argc, char *argv[])
         memcpy(msg, &i, sizeof(SEQNR_TYPE)); // Copy the sequence number to the beginning of the message
         udpSend(fd, servaddr, msg, packet_size);
         clock_gettime(CLOCK_REALTIME, &send);
-        sendMap[i] = send;
+        
+        if(timestamp)
+            sendMap[i] = start;
+        else
+            sendMap[i] = send;
 
         if(mode == RANDOM_EXP)
             tim.tv_nsec = distribution(generator) * 1E6;
@@ -229,7 +252,7 @@ int main(int argc, char *argv[])
 
         do
         {
-            udpReceive(fd, receiveMap, msg);
+            udpReceive(fd, receiveMap, oneWayMap, msg);
             clock_gettime(CLOCK_REALTIME, &now);
         }while((now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) < (tim.tv_nsec + tim.tv_sec * 1E9));
         //std::cout << std::fixed << (now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) << "\n";
@@ -241,14 +264,14 @@ int main(int argc, char *argv[])
     clock_gettime(CLOCK_REALTIME, &start);
     do
     {
-        udpReceive(fd, receiveMap, msg);
+        udpReceive(fd, receiveMap, oneWayMap, msg);
         clock_gettime(CLOCK_REALTIME, &now);
     }while((now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) < (tim.tv_nsec + tim.tv_sec * 1E9));
 
     free(msg);
     close(fd);
     
-    printResult(sendMap, receiveMap);
+    printResult(sendMap, receiveMap, oneWayMap);
     return 0;
 }
 
