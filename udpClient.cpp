@@ -12,12 +12,11 @@
 #include <sstream>
 #include <boost/program_options.hpp>
 #include <map>
+#include "udp-ping.h"
 
 #define FIXED 0
 #define RANDOM_EXP 1
 #define RANDOM_FIXED_PLUS_EXP 2
-
-#define SEQNR_TYPE long int
 
 #define MAXBUF 1600
 
@@ -115,31 +114,31 @@ void printResult(std::map<SEQNR_TYPE, timespec> out, std::map<SEQNR_TYPE, timesp
                   << "Use -t option to force client time stamping before sending (not recommended)\n"; 
 }
 
-int main(int argc, char *argv[])
+paramsType parseParams(int argc, char *argv[])
 {
-    const char * host_name;
+    paramsType par;
     std::string tmp_host_name;
-    int port, num_packets, packet_size, interval, mode;
-    float ratio;
-    bool timestamp;
-    SEQNR_TYPE packetID = 0;
-    std::map<SEQNR_TYPE, timespec> sendMap, receiveMap, oneWayMap;
 
     try
     {
+        std::stringstream s;
+        s << "Destination port number (default " << PORT << ")";
+
         po::options_description desc("Allowed options");
         desc.add_options()
         ("help,h", "Display this help screen")
         ("address,a", po::value<std::string>(&tmp_host_name), "Destination host IP address")
-        ("port,p", po::value<int>(&port)->default_value(1234), "Destination port number (default 1234)")
-        ("num-packets,n", po::value<int>(&num_packets)->default_value(5000), "Number of UDP packets to transmit (default 5000)")
-        ("packet-size,s", po::value<int>(&packet_size)->default_value(50), "Size, in Byte, of each UDP packet (default 50 Byte, conains random ASCII characters)")
-        ("interval,i", po::value<int>(&interval)->default_value(20), "Interval, in milliseconds, between sending packets (default 20 milliseconds, mean value if randomness is used)")
-        ("mode,m", po::value<int>(&mode)->default_value(0), "Distribution of interval between packets: 0: Constant, 1: Exponetially distributed, 2: Constant with ratio r, adding exponentially distributed random component with ratio 1 - r")
-        ("ratio,r", po::value<float>(&ratio)->default_value(0.9), "Ratio of constant component for Mode 2 (default 0.9)")
-        ("timestamp,t", po::bool_switch(&timestamp)->default_value(false), "Use time stamp just before sending the packet, not after (not recommended)");
-
-
+        ("port,p", po::value<int>(&par.port)->default_value(PORT), s.str().c_str())
+        ("num-packets,n", po::value<int>(&par.num_packets)->default_value(5000), "Number of UDP packets to transmit (default 5000)")
+        ("packet-size,s", po::value<int>(&par.packet_size)->default_value(50), "Size, in Byte, of each UDP packet (default 50 Byte, conains random ASCII characters)")
+        ("interval,i", po::value<int>(&par.interval)->default_value(20), 
+        	"Interval, in milliseconds, between sending packets (default 20 milliseconds, mean value if randomness is used)")
+        ("mode,m", po::value<int>(&par.mode)->default_value(0), 
+        	"Distribution of interval between packets: 0: Constant, 1: Exponetially distributed, 2: Constant with ratio r," 
+        	"adding exponentially distributed random component with ratio 1 - r")
+        ("ratio,r", po::value<float>(&par.ratio)->default_value(0.9), "Ratio of constant component for Mode 2 (default 0.9)")
+        ("timestamp,t", po::bool_switch(&par.timestamp)->default_value(false), "Use time stamp just before sending the packet, not after (not recommended)");
+        
         po::positional_options_description p;
         po::variables_map vm;
         po::store(po::command_line_parser(argc, argv).options(desc).positional(p).run(), vm);
@@ -149,81 +148,97 @@ int main(int argc, char *argv[])
         {
             std::cout << "Usage: options_description [options]\n";
             std::cout << desc;
-            return 0;
+            exit(0);
         }
 
         if (vm.count("address"))
         {
-            host_name = tmp_host_name.c_str();
+            par.host_name = tmp_host_name.c_str();
         }
         else
         {
-            perror("Host IP address is required!\n");
-            return -1;
+            std::cout << "Host IP address is required!\n";
+            exit(-1);
         }
 
-        if(mode == FIXED)
+        if(par.mode == FIXED)
             std::cout << "Sending interval between packets: Constant\n";
-        else if(mode == RANDOM_EXP)
-            std::cout << "Sending interval between packets: Exponetially distributed\nWARNING: This may result in small spaces between some packets, causing self-queueing that could be falsely interpreted as network delay. Consider using Mode 2 instead.";
-        else if(mode == RANDOM_FIXED_PLUS_EXP)
+        else if(par.mode == RANDOM_EXP)
+            std::cout << "Sending interval between packets: Exponetially distributed\nWARNING:" 
+                      << "This may result in small spaces between some packets, causing self-queueing "
+                      << "that could be falsely interpreted as network delay. Consider using Mode 2 instead.\n";
+        else if(par.mode == RANDOM_FIXED_PLUS_EXP)
         {
-            if( (ratio < 0.0) || (ratio > 1.0) )
+            if( (par.ratio < 0.0) || (par.ratio > 1.0) )
             {
-                perror("Ratio must be between 0 and 1!\n");
-                return -1;
+                std::cout << "Ratio must be between 0 and 1!\n";
+                exit(-1);
             }
             else
-                std::cout << "Sending interval between packets: Constant with ratio " << ratio << ", adding exponentially distributed random component with ratio " << 1 - ratio << "\n";
+                std::cout << "Sending interval between packets: Constant with ratio " << par.ratio 
+                          << ", adding exponentially distributed random component with ratio " << 1 - par.ratio << "\n";
         }
         else
         {
-            perror("Mode must be '0', '1', or '2':  0: Constant, 1: Exponetially distributed, 2: Constant with ratio r, adding exponentially distributed random component with ratio 1 - r\n");
-            return -1;
+            std::cout << "Mode must be '0', '1', or '2':  0: Constant, 1: Exponetially distributed, 2:" 
+                      << "Constant with ratio r, adding exponentially distributed random component with ratio 1 - r\n";
+            exit(-1);
         }
-        if(packet_size < (sizeof(SEQNR_TYPE) + sizeof(struct timespec)))
+        if(par.packet_size < (sizeof(SEQNR_TYPE) + sizeof(struct timespec)))
         {
             std::cout << "Minimum packet size is " << sizeof(SEQNR_TYPE) + sizeof(struct timespec) << " to fit sequence number and time stamp\n";
-            return -1;
+            exit(-1);
         }
 
-        if(timestamp)
+        if(par.timestamp)
             std::cout << "Sender takes timestamp before sending the packet (not recommeded)\n";
-        std::cout << "Destination host IP address: " << host_name << "\n";
-        std::cout << "Destination port number: " << port << "\n";
-        std::cout << "Number of UDP packets to transmit: " << num_packets << "\n";
-        std::cout << "Size of each UDP packet: " << packet_size << " Byte\n";
-        std::string strInt = (mode != FIXED)?"Mean interval":"Interval";
-        std::cout << strInt << " between sending packets: " << interval << " ms\n\n";
+        std::cout << "Destination host IP address: " << par.host_name << "\n";
+        std::cout << "Destination port number: " << par.port << "\n";
+        std::cout << "Number of UDP packets to transmit: " << par.num_packets << "\n";
+        std::cout << "Size of each UDP packet: " << par.packet_size << " Byte\n";
+        std::string strInt = (par.mode != FIXED)?"Mean interval":"Interval";
+        std::cout << strInt << " between sending packets: " << par.interval << " ms\n\n";
+        
+        return par;
     }
     catch(std::exception& e)
     {
         std::cout << e.what() << "\n";
-        return 1;
+        exit(-1);
     }
 
+}
+
+int main(int argc, char *argv[])
+{
+    paramsType p;
+
+    SEQNR_TYPE packetID = 0;
+    std::map<SEQNR_TYPE, timespec> sendMap, receiveMap, oneWayMap;
+
+    p = parseParams(argc, argv);
 
     struct timespec start, now, tim, send;
     tim.tv_sec = 0;
-    tim.tv_nsec = interval * 1E6;
+    tim.tv_nsec = p.interval * 1E6;
     float rate = 1.0;
 
     std::default_random_engine generator;
-    if(mode == RANDOM_EXP)
-        rate = 1.0/float(interval);
-    if(mode == RANDOM_FIXED_PLUS_EXP)
-        rate = 1.0/(float(interval) * (1.0 - ratio));
+    if(p.mode == RANDOM_EXP)
+        rate = 1.0/float(p.interval);
+    if(p.mode == RANDOM_FIXED_PLUS_EXP)
+        rate = 1.0/(float(p.interval) * (1.0 - p.ratio));
 
     std::exponential_distribution<double> distribution(rate);
 
     sockaddr_in servaddr;
     bzero(&servaddr,sizeof(servaddr));
     servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = inet_addr(host_name);
-    servaddr.sin_port = htons(port);
+    servaddr.sin_addr.s_addr = inet_addr(p.host_name);
+    servaddr.sin_port = htons(p.port);
 
-    char *msg = (char*)malloc(sizeof(char) * (packet_size + 1));
-    for(int i = 0; i < packet_size; i++)
+    char *msg = (char*)malloc(sizeof(char) * (p.packet_size + 1));
+    for(int i = 0; i < p.packet_size; i++)
         msg[i] = rand() % 57 + 65; // Printable ASCII chars for easier debug
 
     std::cout << "Opening socket\n";
@@ -233,22 +248,22 @@ int main(int argc, char *argv[])
 
     std::cout << "Socket is open\n";
     std::cout << "Starting to send\n";
-    for(SEQNR_TYPE i = 0; i < num_packets; i++)
+    for(SEQNR_TYPE i = 0; i < p.num_packets; i++)
     {
         clock_gettime(CLOCK_REALTIME, &start);
         memcpy(msg, &i, sizeof(SEQNR_TYPE)); // Copy the sequence number to the beginning of the message
-        udpSend(fd, servaddr, msg, packet_size);
+        udpSend(fd, servaddr, msg, p.packet_size);
         clock_gettime(CLOCK_REALTIME, &send);
         
-        if(timestamp)
+        if(p.timestamp)
             sendMap[i] = start;
         else
             sendMap[i] = send;
 
-        if(mode == RANDOM_EXP)
+        if(p.mode == RANDOM_EXP)
             tim.tv_nsec = distribution(generator) * 1E6;
-        if(mode == RANDOM_FIXED_PLUS_EXP)
-            tim.tv_nsec = distribution(generator) * 1E6 + (1E6 * float(interval) * ratio);
+        if(p.mode == RANDOM_FIXED_PLUS_EXP)
+            tim.tv_nsec = distribution(generator) * 1E6 + (1E6 * float(p.interval) * p.ratio);
 
         do
         {

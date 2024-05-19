@@ -8,10 +8,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <time.h>
-
-#define PORT 1234
-#define MAXBUF 1600    // Typically, 1500 Byte is the maximum packet size, but this is of course risky
-#define SEQNR_TYPE long int
+#include "udp-ping.h"
 
 void printHelp(const char* argv0)
 {
