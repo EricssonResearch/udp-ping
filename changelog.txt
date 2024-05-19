@@ -2,6 +2,7 @@ For now, we work with dates, not version numbers
 
 19.05.2024:
 - Added time stamping at server to measure one-way-delay and corresponding output at client.  
+- Added support for CMake and .gitignore file
 
 22.05.2023:
 - Minor: Added this file
