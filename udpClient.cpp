@@ -18,8 +18,6 @@
 #define RANDOM_EXP 1
 #define RANDOM_FIXED_PLUS_EXP 2
 
-#define MAXBUF 1600
-
 namespace po = boost::program_options;
 
 int openSocket()
@@ -111,7 +109,7 @@ void printResult(std::map<SEQNR_TYPE, timespec> out, std::map<SEQNR_TYPE, timesp
     if(warn)
         std::cout << "\nWarning: Negative one-way-delays Client->Server were encountered. This can happen with very fast links,\n" 
                   << "as the client records time stamp after sending the packet while the server records before sending it.\n"
-                  << "Use -t option to force client time stamping before sending (not recommended)\n"; 
+                  << "Use -b option to force client time stamping before sending (not recommended)\n"; 
 }
 
 paramsType parseParams(int argc, char *argv[])
@@ -131,13 +129,16 @@ paramsType parseParams(int argc, char *argv[])
         ("port,p", po::value<int>(&par.port)->default_value(PORT), s.str().c_str())
         ("num-packets,n", po::value<int>(&par.num_packets)->default_value(5000), "Number of UDP packets to transmit (default 5000)")
         ("packet-size,s", po::value<int>(&par.packet_size)->default_value(50), "Size, in Byte, of each UDP packet (default 50 Byte, conains random ASCII characters)")
-        ("interval,i", po::value<int>(&par.interval)->default_value(20), 
-        	"Interval, in milliseconds, between sending packets (default 20 milliseconds, mean value if randomness is used)")
+        ("interval,i", po::value<float>(&par.interval)->default_value(20.0), 
+        	"Interval, in milliseconds, between sending packets (default 20.0 milliseconds, mean value if randomness is used)")
         ("mode,m", po::value<int>(&par.mode)->default_value(0), 
         	"Distribution of interval between packets: 0: Constant, 1: Exponetially distributed, 2: Constant with ratio r," 
         	"adding exponentially distributed random component with ratio 1 - r")
         ("ratio,r", po::value<float>(&par.ratio)->default_value(0.9), "Ratio of constant component for Mode 2 (default 0.9)")
-        ("timestamp,t", po::bool_switch(&par.timestamp)->default_value(false), "Use time stamp just before sending the packet, not after (not recommended)");
+        ("before,b", po::bool_switch(&par.timestamp)->default_value(false), "Use time stamp just before sending the packet, not after (not recommended)")
+        ("throughput,t", po::bool_switch(&par.throughput)->default_value(false), "Print additional information supporting throughput measurements."
+                "Be sure to also set this parameter on the udpServer. Delay results will not be shown as the server is not sending replies in throughput mode.");
+
         
         po::positional_options_description p;
         po::variables_map vm;
@@ -146,7 +147,7 @@ paramsType parseParams(int argc, char *argv[])
 
         if (vm.count("help"))
         {
-            std::cout << "Usage: options_description [options]\n";
+            std::cout << "Usage: udpClient -a ServerIP [options]\n";
             std::cout << desc;
             exit(0);
         }
@@ -214,6 +215,7 @@ int main(int argc, char *argv[])
     paramsType p;
 
     SEQNR_TYPE packetID = 0;
+    long startTime;
     std::map<SEQNR_TYPE, timespec> sendMap, receiveMap, oneWayMap;
 
     p = parseParams(argc, argv);
@@ -247,6 +249,19 @@ int main(int argc, char *argv[])
         return -1;
 
     std::cout << "Socket is open\n";
+
+    if(p.throughput)
+    {
+        std::cout << std::fixed << std::fixed << std::setprecision(3) << "Starting to send at " 
+                  << 1E-3 / p.interval * p.packet_size * 8 << " Mbit/s\n";
+        std::cout << "Estimated experiment duration: " 
+                  << float(p.num_packets) / (1000.0 / p.interval) << " seconds\n";
+
+        clock_gettime(CLOCK_REALTIME, &start);
+        startTime = start.tv_nsec + 1E9 * start.tv_sec;
+
+    }
+
     std::cout << "Starting to send\n";
     for(SEQNR_TYPE i = 0; i < p.num_packets; i++)
     {
@@ -273,20 +288,34 @@ int main(int argc, char *argv[])
         //std::cout << std::fixed << (now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) << "\n";
     }
 
-    // Keep receiving for 2 more seconds
-    tim.tv_sec = 2;
-    tim.tv_nsec = 0;
-    clock_gettime(CLOCK_REALTIME, &start);
-    do
+    if(!p.throughput) // Keep receiving for 2 more seconds
     {
-        udpReceive(fd, receiveMap, oneWayMap, msg);
-        clock_gettime(CLOCK_REALTIME, &now);
-    }while((now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) < (tim.tv_nsec + tim.tv_sec * 1E9));
+        tim.tv_sec = 2;
+        tim.tv_nsec = 0;
+        clock_gettime(CLOCK_REALTIME, &start);
+        do
+        {
+            udpReceive(fd, receiveMap, oneWayMap, msg);
+            clock_gettime(CLOCK_REALTIME, &now);
+        }while((now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) < (tim.tv_nsec + tim.tv_sec * 1E9));
+    }
+    else // Print information about actual throughput
+    {
+        float duration = float(now.tv_nsec + now.tv_sec * 1E9 - startTime) / 1E9;
+        long totalBit = long(p.num_packets) * long(p.packet_size) * 8.0;
+
+        std::cout << "Experiment took " << duration << " seconds.\n";
+        std::cout <<  std::fixed << std::setprecision(3) 
+                  << "Average sending throughput: " << float(totalBit) / 1E6 
+                  << " MBit / " << duration << " s = " << float(totalBit) / duration / 1E6 
+                  << " Mbit/s. (If lower than what was configured, client was unable to send faster)\n";
+        std::cout << "Client finished. Press Ctrl+C on server to print result.\n";
+    }
 
     free(msg);
     close(fd);
-    
-    printResult(sendMap, receiveMap, oneWayMap);
+    if(!p.throughput)
+        printResult(sendMap, receiveMap, oneWayMap);
     return 0;
 }
 
