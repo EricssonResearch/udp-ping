@@ -261,8 +261,9 @@ int main(int argc, char *argv[])
         startTime = start.tv_nsec + 1E9 * start.tv_sec;
 
     }
+    else
+        std::cout << "Starting to send\n";
 
-    std::cout << "Starting to send\n";
     for(SEQNR_TYPE i = 0; i < p.num_packets; i++)
     {
         clock_gettime(CLOCK_REALTIME, &start);
