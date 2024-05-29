@@ -6,7 +6,7 @@
 #define PORT 1234
 
 struct paramsType {
-    str::string host_name;
+    std::string host_name;
     int port;
     int num_packets;
     int packet_size;
