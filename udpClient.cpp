@@ -115,7 +115,6 @@ void printResult(std::map<SEQNR_TYPE, timespec> out, std::map<SEQNR_TYPE, timesp
 paramsType parseParams(int argc, char *argv[])
 {
     paramsType par;
-    std::string tmp_host_name;
 
     try
     {
@@ -125,7 +124,7 @@ paramsType parseParams(int argc, char *argv[])
         po::options_description desc("Allowed options");
         desc.add_options()
         ("help,h", "Display this help screen")
-        ("address,a", po::value<std::string>(&tmp_host_name), "Destination host IP address")
+        ("address,a", po::value<std::string>(&par.host_name), "Destination host IP address")
         ("port,p", po::value<int>(&par.port)->default_value(PORT), s.str().c_str())
         ("num-packets,n", po::value<int>(&par.num_packets)->default_value(5000), "Number of UDP packets to transmit (default 5000)")
         ("packet-size,s", po::value<int>(&par.packet_size)->default_value(50), "Size, in Byte, of each UDP packet (default 50 Byte, conains random ASCII characters)")
@@ -152,11 +151,7 @@ paramsType parseParams(int argc, char *argv[])
             exit(0);
         }
 
-        if (vm.count("address"))
-        {
-            par.host_name = tmp_host_name.c_str();
-        }
-        else
+        if (!vm.count("address"))
         {
             std::cout << "Host IP address is required!\n";
             exit(-1);
@@ -236,7 +231,7 @@ int main(int argc, char *argv[])
     sockaddr_in servaddr;
     bzero(&servaddr,sizeof(servaddr));
     servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = inet_addr(p.host_name);
+    servaddr.sin_addr.s_addr = inet_addr(p.host_name.c_str());
     servaddr.sin_port = htons(p.port);
 
     char *msg = (char*)malloc(sizeof(char) * (p.packet_size + 1));
