@@ -239,11 +239,15 @@ int main(int argc, char *argv[])
         msg[i] = rand() % 57 + 65; // Printable ASCII chars for easier debug
 
     std::cout << "Opening socket\n";
-    int fd = openSocket();
-    if(fd < 0)
+    int fdRcv = openSocket();
+    int fdSnd = openSocket();
+    if(fdRcv < 0 || fdSnd < 0)
+    {
+        std::cout << "Error opening socket for sending or receiving.";
         return -1;
+    }
 
-    std::cout << "Socket is open\n";
+    std::cout << "Sockets are open\n";
 
     if(p.throughput)
     {
@@ -263,7 +267,7 @@ int main(int argc, char *argv[])
     {
         clock_gettime(CLOCK_REALTIME, &start);
         memcpy(msg, &i, sizeof(SEQNR_TYPE)); // Copy the sequence number to the beginning of the message
-        udpSend(fd, servaddr, msg, p.packet_size);
+        udpSend(fdSnd, servaddr, msg, p.packet_size);
         clock_gettime(CLOCK_REALTIME, &send);
         
         if(p.timestamp)
@@ -278,7 +282,7 @@ int main(int argc, char *argv[])
 
         do
         {
-            udpReceive(fd, receiveMap, oneWayMap, msg);
+            udpReceive(fdRcv, receiveMap, oneWayMap, msg);
             clock_gettime(CLOCK_REALTIME, &now);
         }while((now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) < (tim.tv_nsec + tim.tv_sec * 1E9));
         //std::cout << std::fixed << (now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) << "\n";
@@ -291,7 +295,7 @@ int main(int argc, char *argv[])
         clock_gettime(CLOCK_REALTIME, &start);
         do
         {
-            udpReceive(fd, receiveMap, oneWayMap, msg);
+            udpReceive(fdRcv, receiveMap, oneWayMap, msg);
             clock_gettime(CLOCK_REALTIME, &now);
         }while((now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) < (tim.tv_nsec + tim.tv_sec * 1E9));
     }
@@ -309,7 +313,9 @@ int main(int argc, char *argv[])
     }
 
     free(msg);
-    close(fd);
+    close(fdSnd);
+    close(fdRcv);
+
     if(!p.throughput)
         printResult(sendMap, receiveMap, oneWayMap);
     return 0;
