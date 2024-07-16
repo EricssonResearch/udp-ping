@@ -240,7 +240,12 @@ int main(int argc, char *argv[])
 
     std::cout << "Opening socket\n";
     int fdRcv = openSocket();
-    int fdSnd = openSocket();
+    int fdSnd;
+    if(p.throughput) // Throughput measurements need sending to block but not delay measurements
+        fdSnd = openSocket();
+    else
+        fdSnd = fdRcv;
+
     if(fdRcv < 0 || fdSnd < 0)
     {
         std::cout << "Error opening socket for sending or receiving.";
