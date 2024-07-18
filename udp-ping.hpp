@@ -10,6 +10,7 @@ struct paramsType {
     int port;
     int num_packets;
     int packet_size;
+    int tos;
     float interval;
     int mode;
     float ratio;

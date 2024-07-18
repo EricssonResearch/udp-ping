@@ -136,7 +136,8 @@ paramsType parseParams(int argc, char *argv[])
         ("ratio,r", po::value<float>(&par.ratio)->default_value(0.9), "Ratio of constant component for Mode 2 (default 0.9)")
         ("before,b", po::bool_switch(&par.timestamp)->default_value(false), "Use time stamp just before sending the packet, not after (not recommended)")
         ("throughput,t", po::bool_switch(&par.throughput)->default_value(false), "Print additional information supporting throughput measurements."
-                "Be sure to also set this parameter on the udpServer. Delay results will not be shown as the server is not sending replies in throughput mode.");
+                "Be sure to also set this parameter on the udpServer. Delay results will not be shown as the server is not sending replies in throughput mode.")
+        ("tos,q", po::value<int>(&par.tos)->default_value(0), "Value of IP ToS/DSCP header field (default 0)\nOnly used by sender (udpClient), not copied into receiver (udpServer) reply");
 
         
         po::positional_options_description p;
@@ -192,6 +193,7 @@ paramsType parseParams(int argc, char *argv[])
         std::cout << "Destination port number: " << par.port << "\n";
         std::cout << "Number of UDP packets to transmit: " << par.num_packets << "\n";
         std::cout << "Size of each UDP packet: " << par.packet_size << " Byte\n";
+        std::cout << "Value of ToS/DSCP field in IP header: " << par.tos << "\n";
         std::string strInt = (par.mode != FIXED)?"Mean interval":"Interval";
         std::cout << strInt << " between sending packets: " << par.interval << " ms\n\n";
         
@@ -252,7 +254,13 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    std::cout << "Sockets are open\n";
+    if(setsockopt(fdSnd, IPPROTO_IP, IP_TOS, (char *)&p.tos, sizeof(int)) < 0)
+    {
+        std::cout << "Error setting ToS/DSCP IP header value for socket.";
+        return -1;
+    }
+
+    std::cout << "Sockets are open with ToS/DSCP set to " << p.tos << "\n";
 
     if(p.throughput)
     {
