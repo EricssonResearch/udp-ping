@@ -254,13 +254,14 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    if(setsockopt(fdSnd, IPPROTO_IP, IP_TOS, (char *)&p.tos, sizeof(int)) < 0)
+    int tos = p.tos << 2;
+    if(setsockopt(fdSnd, IPPROTO_IP, IP_TOS, (char *)&tos, sizeof(int)) < 0)
     {
         std::cout << "Error setting ToS/DSCP IP header value for socket.";
         return -1;
     }
 
-    std::cout << "Sockets are open with ToS/DSCP set to " << p.tos << "\n";
+    std::cout << "Sockets are open with sender ToS/DSCP set to " << p.tos << "\n";
 
     if(p.throughput)
     {

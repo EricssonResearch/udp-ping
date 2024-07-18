@@ -37,7 +37,7 @@ fi
 ../udpServer &
 pid=$!
 sleep 0.1
-../udpClient -a 127.0.0.1 -n 200
+../udpClient -a 127.0.0.1 -n 200 -q 7
 kill $pid
 
 if [ "$doTC" = true ]

@@ -17,6 +17,20 @@ namespace po = boost::program_options;
 std::map<SEQNR_TYPE, std::pair<timespec, int>> received; // Needs to be global to access in Ctrl+C handler
 bool printRaw;
 
+int getToS(struct msghdr msg)
+{
+    struct cmsghdr *cmsg;
+    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg,cmsg)) 
+    {
+        if((cmsg->cmsg_level == IPPROTO_IP) && (cmsg->cmsg_type == IP_TOS) && (cmsg->cmsg_len))
+        {
+            int tos = *(uint8_t *)CMSG_DATA(cmsg);
+            return (tos >> 2);
+        }
+    }
+    return -1;
+}
+
 void printResult()
 {
     std::map<SEQNR_TYPE, std::pair<timespec, int>>::iterator it;
@@ -158,7 +172,26 @@ int main(int argc, char *argv[])
 
     int sockfd;
     char buffer[MAXBUF];
+    
+    unsigned char received_tos;
+
+    struct msghdr msg;
+    struct iovec iov[1];
+    memset(&msg, '\0', sizeof(msg));
+    msg.msg_iov = iov;
+    msg.msg_iovlen = 1;
+    iov[0].iov_base = &buffer;
+    iov[0].iov_len = sizeof(buffer);
+
+    int cmsg_size = sizeof(struct cmsghdr) + sizeof(received_tos);
+    char buf[CMSG_SPACE(sizeof(received_tos))];
+
+    msg.msg_control = buf;
+    msg.msg_controllen = sizeof(buf);
+
     struct sockaddr_in servaddr, cliaddr;
+    msg.msg_name = &cliaddr;
+    msg.msg_namelen = sizeof(cliaddr);
 
     // Creating socket file descriptor
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) 
@@ -176,8 +209,12 @@ int main(int argc, char *argv[])
     if(bind(sockfd, (const struct sockaddr*)&servaddr, sizeof(servaddr)) < 0)
     {
         perror("Binding to socket failed");
-        exit(EXIT_FAILURE);
+        return -1;
     }
+
+    // Enabling extracting ToS/DSCP information from received packets
+    unsigned char set = 0x03;
+    setsockopt(sockfd, IPPROTO_IP, IP_RECVTOS, &set, sizeof(set));
 
     struct timespec now;
     socklen_t len;
@@ -185,26 +222,31 @@ int main(int argc, char *argv[])
 
     while(1)
     {
-        len = sizeof(cliaddr);
-
-        n = recvfrom(sockfd, (char*)buffer, MAXBUF, 0, ( struct sockaddr*) &cliaddr, &len);
-        clock_gettime(CLOCK_REALTIME, &now);
-
-        if(!p.throughput)
+        n = recvmsg(sockfd, &msg, 0);
+        
+        if (n > 0)
         {
-            memcpy(&buffer[sizeof(SEQNR_TYPE)], &now, sizeof(struct timespec));
-            sendto(sockfd, (const char*)buffer, n, 0, (const struct sockaddr*) &cliaddr, len);
-            count++;
-            if(count % 100 == 0)
-                std::cout << count << " reply messages sent. Last one was " << n << " byte long." << std::endl;
-        }
-        else
-        {
-            SEQNR_TYPE seqnr;
-            memcpy(&seqnr, buffer, sizeof(SEQNR_TYPE));
-            received[seqnr].first = now;
-            received[seqnr].second = n * 8;
-        }
+            clock_gettime(CLOCK_REALTIME, &now);
+
+            if(!p.throughput)
+            {
+                memcpy(&buffer[sizeof(SEQNR_TYPE)], &now, sizeof(struct timespec));
+                if(sendto(sockfd, (const char*)buffer, n, 0, (const struct sockaddr*) &cliaddr, msg.msg_namelen) < 0)
+	            perror("Cannot send message");
+
+                count++;
+                if(count % 100 == 0)
+                    std::cout << count << " messages received. Last one was " << n << " byte long and came from " << inet_ntoa(cliaddr.sin_addr) 
+                              << " with ToS/DSCP field set to " << getToS(msg) << std::endl;
+            }
+            else
+            {
+                SEQNR_TYPE seqnr;
+                memcpy(&seqnr, buffer, sizeof(SEQNR_TYPE));
+                received[seqnr].first = now;
+                received[seqnr].second = n * 8;
+           }
+       }       
     }
     return 0;
 }
