@@ -16,6 +16,7 @@ struct paramsType {
     float ratio;
     bool timestamp;
     bool throughput;
+    bool live;
 };
 
 #endif

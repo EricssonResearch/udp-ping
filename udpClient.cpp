@@ -40,7 +40,12 @@ bool udpSend(int fd, sockaddr_in serveraddr, const char *msg, int size)
     return true;
 }
 
-bool udpReceive(int fd, std::map<SEQNR_TYPE, timespec> &in, std::map<SEQNR_TYPE, timespec> &oneWay, char* buffer)
+long int timespecDiff(const struct timespec ts1, const struct timespec ts2)
+{
+    return ((ts1.tv_nsec + ts1.tv_sec * 1E9)  - (ts2.tv_nsec + ts2.tv_sec * 1E9));
+}
+
+int udpReceive(int fd, std::map<SEQNR_TYPE, timespec> &in, std::map<SEQNR_TYPE, timespec> &oneWay, char* buffer)
 {
     fd_set readfds;
     fcntl(fd, F_SETFL, O_NONBLOCK);
@@ -69,9 +74,9 @@ bool udpReceive(int fd, std::map<SEQNR_TYPE, timespec> &in, std::map<SEQNR_TYPE,
         in[seqnr] = now;
         oneWay[seqnr] = then;
 
-        return true;
+        return seqnr;
     }
-    return false;
+    return -1;
 }
 
 
@@ -91,10 +96,10 @@ void printResult(std::map<SEQNR_TYPE, timespec> out, std::map<SEQNR_TYPE, timesp
                 << it->second.tv_nsec + it->second.tv_sec * 1E9 << ";"
                 << (oneWay[it->first].tv_nsec + oneWay[it->first].tv_sec * 1E9) << ";"
                 << in[it->first].tv_nsec + in[it->first].tv_sec * 1E9 << ";"
-                << (oneWay[it->first].tv_nsec + oneWay[it->first].tv_sec * 1E9) - (it->second.tv_nsec + it->second.tv_sec * 1E9) << ";"
-                << (in[it->first].tv_nsec + in[it->first].tv_sec * 1E9)  - (oneWay[it->first].tv_nsec + oneWay[it->first].tv_sec * 1E9) << ";"
-                << (in[it->first].tv_nsec + in[it->first].tv_sec * 1E9) - (it->second.tv_nsec + it->second.tv_sec * 1E9) << "\n";
-            if((oneWay[it->first].tv_nsec + oneWay[it->first].tv_sec * 1E9) - (it->second.tv_nsec + it->second.tv_sec * 1E9) < 0)
+                << timespecDiff(oneWay[it->first], it->second) << ";"
+                << timespecDiff(in[it->first], oneWay[it->first]) << ";"
+                << timespecDiff(in[it->first], it->second) << "\n";
+            if(timespecDiff(oneWay[it->first], it->second) < 0)
                 warn = true;
         }
         else
@@ -137,9 +142,9 @@ paramsType parseParams(int argc, char *argv[])
         ("before,b", po::bool_switch(&par.timestamp)->default_value(false), "Use time stamp just before sending the packet, not after (not recommended)")
         ("throughput,t", po::bool_switch(&par.throughput)->default_value(false), "Print additional information supporting throughput measurements."
                 "Be sure to also set this parameter on the udpServer. Delay results will not be shown as the server is not sending replies in throughput mode.")
-        ("tos,q", po::value<int>(&par.tos)->default_value(0), "Value of IP ToS/DSCP header field (default 0)\nOnly used by sender (udpClient), not copied into receiver (udpServer) reply");
+        ("tos,q", po::value<int>(&par.tos)->default_value(0), "Value of IP ToS/DSCP header field (default 0)\nOnly used by sender (udpClient), not copied into receiver (udpServer) reply")
+        ("live,l", po::bool_switch(&par.live)->default_value(false), "Display daley information for each incoming packet, nit just at the end");
 
-        
         po::positional_options_description p;
         po::variables_map vm;
         po::store(po::command_line_parser(argc, argv).options(desc).positional(p).run(), vm);
@@ -196,7 +201,7 @@ paramsType parseParams(int argc, char *argv[])
         std::cout << "Value of ToS/DSCP field in IP header: " << par.tos << "\n";
         std::string strInt = (par.mode != FIXED)?"Mean interval":"Interval";
         std::cout << strInt << " between sending packets: " << par.interval << " ms\n\n";
-        
+
         return par;
     }
     catch(std::exception& e)
@@ -283,7 +288,7 @@ int main(int argc, char *argv[])
         memcpy(msg, &i, sizeof(SEQNR_TYPE)); // Copy the sequence number to the beginning of the message
         udpSend(fdSnd, servaddr, msg, p.packet_size);
         clock_gettime(CLOCK_REALTIME, &send);
-        
+
         if(p.timestamp)
             sendMap[i] = start;
         else
@@ -296,10 +301,17 @@ int main(int argc, char *argv[])
 
         do
         {
-            udpReceive(fdRcv, receiveMap, oneWayMap, msg);
+            int seq = udpReceive(fdRcv, receiveMap, oneWayMap, msg);
+            if(p.live && seq >= 0)
+            {
+                std::cout << std::fixed << std::setprecision(0) << seq << ";"
+                    << timespecDiff(oneWayMap[seq], sendMap[seq]) << ";"
+                    << timespecDiff(receiveMap[seq], oneWayMap[seq]) << ";"
+                    << timespecDiff(receiveMap[seq], sendMap[seq]) << "\n";
+            }
+
             clock_gettime(CLOCK_REALTIME, &now);
         }while((now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) < (tim.tv_nsec + tim.tv_sec * 1E9));
-        //std::cout << std::fixed << (now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) << "\n";
     }
 
     if(!p.throughput) // Keep receiving for 2 more seconds
@@ -330,7 +342,7 @@ int main(int argc, char *argv[])
     close(fdSnd);
     close(fdRcv);
 
-    if(!p.throughput)
+    if(!p.throughput && !p.live)
         printResult(sendMap, receiveMap, oneWayMap);
     return 0;
 }
