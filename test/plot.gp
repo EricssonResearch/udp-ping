@@ -1,7 +1,8 @@
 set datafile separator ";"
 plot 'plot.txt' using 1:4 with lines
-pause 0.2
-reread
-set autoscale
+while (1) {
+   replot
+   pause 0.2
+}
 
 
