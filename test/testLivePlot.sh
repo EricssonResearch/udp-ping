@@ -12,15 +12,22 @@ then
     exit 1
 fi
 
+n=100
+
 ../udpServer > /dev/null&
 pid=$!
 sleep 0.1
-unbuffer ../udpClient -i 200 -a 127.0.0.1 -n 50 -q 7 -l > plot.txt&
+unbuffer ../udpClient -b -i 200 -a 127.0.0.1 -n $n -q 7 -l > plot.txt&
 pidClient=$!
 sleep 1
 gnuplot plot.gp&
 pidGP=$!
-sleep 11
+
+i=`cat plot.txt | wc -l`
+while [ $(($i < $n)) == 1 ]; do
+   i=`cat plot.txt | wc -l`
+   sleep 0.5
+done
 
 kill $pidGP
 kill $pidClient
