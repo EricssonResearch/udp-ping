@@ -29,6 +29,38 @@ int openSocket()
     return fd;
 }
 
+bool setToS(int fdSnd, int ptos)
+{
+    int tos = ptos << 2;
+    if(setsockopt(fdSnd, IPPROTO_IP, IP_TOS, (char *)&tos, sizeof(int)) < 0)
+        return false;
+
+    return true;
+}
+
+bool resetSockets(int &fdSnd, int &fdRcv, int tos, bool thr)
+{
+    close(fdSnd);
+    close(fdRcv);
+
+    if(thr)
+    {
+        fdSnd = openSocket();
+        fdRcv = openSocket();
+    }
+    else
+    {
+        fdSnd = fdRcv = openSocket();
+    }
+
+    if(fdSnd < 0 || fdRcv <0)
+        return false;
+
+    if(!setToS(fdSnd, tos))
+        return false;
+
+    return true;
+}
 
 bool udpSend(int fd, sockaddr_in serveraddr, const char *msg, int size)
 {
@@ -143,7 +175,9 @@ paramsType parseParams(int argc, char *argv[])
         ("throughput,t", po::bool_switch(&par.throughput)->default_value(false), "Print additional information supporting throughput measurements."
                 "Be sure to also set this parameter on the udpServer. Delay results will not be shown as the server is not sending replies in throughput mode.")
         ("tos,q", po::value<int>(&par.tos)->default_value(0), "Value of IP ToS/DSCP header field (default 0)\nOnly used by sender (udpClient), not copied into receiver (udpServer) reply")
-        ("live,l", po::bool_switch(&par.live)->default_value(false), "Display daley information for each incoming packet, nit just at the end");
+        ("live,l", po::bool_switch(&par.live)->default_value(false), "Display daley information for each incoming packet, not just at the end")
+	("change-source-port,c", po::value<int>(&par.changePort)->default_value(0), 
+		"Change source port every x packets, where x is the provided parameter. Use large send interval to assure replies are received before the port is changed");
 
         po::positional_options_description p;
         po::variables_map vm;
@@ -259,8 +293,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    int tos = p.tos << 2;
-    if(setsockopt(fdSnd, IPPROTO_IP, IP_TOS, (char *)&tos, sizeof(int)) < 0)
+    if(!setToS(fdSnd, p.tos))
     {
         std::cout << "Error setting ToS/DSCP IP header value for socket.";
         return -1;
@@ -312,6 +345,15 @@ int main(int argc, char *argv[])
 
             clock_gettime(CLOCK_REALTIME, &now);
         }while((now.tv_nsec + now.tv_sec * 1E9) - (start.tv_nsec + start.tv_sec * 1E9) < (tim.tv_nsec + tim.tv_sec * 1E9));
+
+	if(p.changePort && (i % p.changePort == 0))
+        {
+            if(!resetSockets(fdSnd, fdRcv, p.tos, p.throughput))
+            {
+                std::cout << "Resetting socket failed." << "\n";
+                return -1;
+            }
+        }
     }
 
     if(!p.throughput) // Keep receiving for 2 more seconds

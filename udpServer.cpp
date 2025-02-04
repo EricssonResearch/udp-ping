@@ -236,7 +236,8 @@ int main(int argc, char *argv[])
 
                 count++;
                 if(count % 100 == 0)
-                    std::cout << count << " messages received. Last one was " << n << " byte long and came from " << inet_ntoa(cliaddr.sin_addr) 
+                    std::cout << count << " messages received. Last one was " << n << " byte long and came from " 
+                              << inet_ntoa(cliaddr.sin_addr) << ":" << cliaddr.sin_port 
                               << " with ToS/DSCP field set to " << getToS(msg) << std::endl;
             }
             else

@@ -17,6 +17,7 @@ struct paramsType {
     bool timestamp;
     bool throughput;
     bool live;
+    int changePort;
 };
 
 #endif

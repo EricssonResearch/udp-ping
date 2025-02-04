@@ -1,5 +1,8 @@
 For now, we work with dates, not version numbers
 
+04.02.2025:
+- New feature to change UDP source port during runtime.
+
 19.05.2024:
 - Added time stamping at server to measure one-way-delay and corresponding output at client.  
 - Added support for CMake and .gitignore file
