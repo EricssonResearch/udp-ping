@@ -7,13 +7,13 @@ useMTU=1400
 
 doAutoMTU=true
 
-if !command -v tracepath &> /dev/null
+if ! command -v tracepath &> /dev/null
 then
     echo "tracepath command not found. On Debian/Ubunut install using \"sudo apt-get install iputils-tracepath\""
     doAutoMTU=false
 fi
 
-if !command -v awk &> /dev/null
+if ! command -v awk &> /dev/null
 then
     echo "awk command not found. On Debian/Ubuntu install using \"sudo apt-get install gawk\""
     doAutoMTU=false
@@ -60,7 +60,7 @@ then
     mtu=`tracepath 127.0.0.1 | tail -1 | awk '{print $3}'`
     echo "Path MTU size detected: $mtu Byte"
 else
-    mtu=$(($useMTU-60))
+    mtu=$useMTU
     echo "Cannot automatically detect path MTU size. Using $mtu Byte"
 fi
 
